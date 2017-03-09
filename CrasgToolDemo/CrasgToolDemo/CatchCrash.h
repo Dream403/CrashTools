@@ -15,4 +15,7 @@
 +(NSArray *)getCrashLog;
 //清理日志
 +(BOOL)clearCrashLog;
+
++(NSUncaughtExceptionHandler *)catchGetExceptionHandler;
+
 @end

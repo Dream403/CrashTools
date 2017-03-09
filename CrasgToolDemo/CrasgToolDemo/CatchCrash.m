@@ -7,7 +7,8 @@
 //
 
 #import "CatchCrash.h"
-
+#import <mach-o/dyld.h>
+#import <mach-o/loader.h>
 #define  filePath @"log/error"
 
 #define  VALIDDAYS  7
@@ -40,6 +41,57 @@
      }
      
 }
+/**
+ 
+ http://www.cocoachina.com/ios/20150701/12301.html?mType=Group
+ 
+ 如果同时有多方通过NSSetUncaughtExceptionHandler注册异常处理程序，和平的作法是：后注册者通过NSGetUncaughtExceptionHandler将先前别人注册的handler取出并备份，在自己handler处理完后自觉把别人的handler注册回去，规规矩矩的传递。不传递强行覆盖的后果是，在其之前注册过的日志收集服务写出的Crash日志就会因为取不到NSException而丢失Last Exception Backtrace等信息。（P.S. iOS系统自带的Crash Reporter不受影响）
+ */
++(NSUncaughtExceptionHandler *)catchGetExceptionHandler{
+    
+  return  NSGetUncaughtExceptionHandler();
+    
+}
+//获取dSYM UUID方法如下
+static  NSUUID *ExecutabUUID (void ){
+    
+    const  struct mach_header  *executableHeader =NULL;
+    
+    for (uint32_t  i = 0 ; i<_dyld_image_count(); i++) {
+     
+        const struct mach_header *header =_dyld_get_image_header(i);
+        
+        if (header ->filetype ==MH_EXECUTE) {
+            
+            executableHeader =header;
+            
+            break;
+        }
+        
+    }
+    
+    if (!executableHeader) return nil;
+    
+    BOOL  is64bit  =executableHeader ->magic ==MH_EXECUTE ||executableHeader->magic == MH_CIGAM_64 ;
+    
+    uintptr_t cursor  = (uintptr_t)executableHeader + (is64bit ? sizeof(struct mach_header_64) : sizeof(struct mach_header));
+    
+    const struct segment_command *segmentCommand = NULL;
+    
+    for (uint32_t i = 0; i < executableHeader->ncmds; i++, cursor += segmentCommand->cmdsize)
+    {
+        segmentCommand = (struct segment_command *)cursor;
+        
+        if (segmentCommand->cmd == LC_UUID)
+        {
+            const struct uuid_command *uuidCommand = (const struct uuid_command *)segmentCommand;
+            return [[NSUUID alloc] initWithUUIDBytes:uuidCommand->uuid];
+        }
+    }
+    
+    return nil;
+    
+}
 +(BOOL)CheckWriteCrashFileOnDocumentsException:(NSDictionary *)exceptionDic{
   
     //获取时间
@@ -57,9 +109,9 @@
     
     NSDictionary *infoDic = [[NSBundle mainBundle] infoDictionary];
     
-     NSString *crashname = [NSString stringWithFormat:@"%@_%@Crashlog.log",DateTime,infoDic[@"CFBundleName"]];
+     NSString *crashname = [NSString stringWithFormat:@"%@_%@_%@Crashlog.log",ExecutabUUID(),DateTime,infoDic[@"CFBundleName"]];
     
-      NSString *crashPath = [[self getFilePath] stringByAppendingString:filePath];
+    NSString *crashPath = [[self getFilePath] stringByAppendingString:filePath];
   
 
     
@@ -91,7 +143,6 @@
         }
         
        NSDictionary *infos = @{@"Exception":exceptionDic,@"DeviceInfo":deviceInfos};
-        
         
         [logs setValue:infos forKey:[NSString stringWithFormat:@"%@_crashLogs",infoDic[@"CFBundleName"]]];
 
